@@ -1,0 +1,83 @@
+name: BDS World Auto Backup
+
+on:
+  schedule:
+    # JST 04:17 と JST 16:23（UTC 19:17 と UTC 07:23）の1日2回実行
+    # 混雑する 00分/05分/30分 を完全に避けた設定
+    - cron: '17 19 * * *'
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Stop BDS Server via Pterodactyl API
+        run: |
+          curl -X POST "${{ secrets.PANEL_URL }}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
+            -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: Application/vnd.pterodactyl.v1+json" \
+            -d '{"signal": "stop"}'
+          
+          # サーバーが完全に停止するまで30秒待機
+          sleep 30
+
+      - name: Create Backup Zip via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASS }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            # 日本時間（JST）でファイル名を作成
+            FILENAME=$(TZ=Asia/Tokyo date '+"worlds_backup_%Y%m%d_H%H_M%M_JST.zip"')
+            
+            # ディレクトリの移動とzip圧縮
+            cd /home/container/worlds
+            zip -r "$FILENAME" world
+            
+            echo "Backup created: /home/container/worlds/$FILENAME"
+
+      - name: Start BDS Server via Pterodactyl API
+        if: always() # バックアップ成否に関わらずサーバーは再起動を試みる
+        run: |
+          curl -X POST "${{ secrets.PANEL_URL }}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
+            -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: Application/vnd.pterodactyl.v1+json" \
+            -d '{"signal": "start"}'
+
+      - name: Notify Discord on Success
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d '{
+                  "flags": 4096,
+                  "embeds": [{
+                    "title": "✅ ワールドバックアップ成功",
+                    "description": "BDSのワールドバックアップが正常に完了し、サーバーを再起動しました。",
+                    "color": 3066993,
+                    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+                  }]
+                }' \
+            "${{ secrets.DISCORD_WEBHOOK }}"
+
+      - name: Notify Discord on Failure
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d '{
+                  "flags": 4096,
+                  "embeds": [{
+                    "title": "🚨 ワールドバックアップ失敗",
+                    "description": "バックアップ処理中にエラーが発生しました。ログとサーバーの状態を確認してください。",
+                    "color": 15158332,
+                    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+                  }]
+                }' \
+            "${{ secrets.DISCORD_WEBHOOK }}"
