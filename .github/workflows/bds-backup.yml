@@ -1,4 +1,3 @@
-```yaml
 name: BDS World Auto Backup
 
 on:
@@ -8,6 +7,7 @@ on:
 
     # 日本時間 13:17
     - cron: '17 4 * * *'
+  workflow_dispatch:
 
   # GitHub Actionsから手動実行可能
   workflow_dispatch:
