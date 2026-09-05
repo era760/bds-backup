@@ -23,17 +23,20 @@ jobs:
               -d "{\"command\": \"$1\"}"
           }
 
-          # BDSのsayコマンドでエラーになる角カッコ [] を排除
-          send_cmd "say Backup: World backup will start in 1 minute. Server will restart soon."
+          # 日本語メッセージ（BDSで安全な文字列）
+          send_cmd "say Backup: 1 minute until world backup. Server will restart soon."
+          send_cmd "say Backup: 1分後にワールドバックアップを開始します。間もなく再起動します。"
           sleep 30
 
-          send_cmd "say Backup: World backup in 30 seconds."
+          send_cmd "say Backup: 30 seconds until backup."
+          send_cmd "say Backup: 30秒前"
           sleep 20
 
-          send_cmd "say Backup: World backup in 10 seconds!"
+          send_cmd "say Backup: 10 seconds!"
+          send_cmd "say Backup: 10秒前"
           sleep 5
 
-          send_cmd "say Backup: Server stopping in 5..."
+          send_cmd "say Backup: 5..."
           sleep 1
           send_cmd "say Backup: 4..."
           sleep 1
@@ -44,7 +47,8 @@ jobs:
           send_cmd "say Backup: 1..."
           sleep 1
 
-          send_cmd "say Backup: Stopping server now for world backup..."
+          send_cmd "say Backup: Stopping server now..."
+          send_cmd "say Backup: サーバーを停止しています..."
           sleep 2
 
       - name: Stop BDS Server via Pterodactyl API
@@ -58,7 +62,7 @@ jobs:
           
           sleep 30
 
-      - name: Create Backup Zip via SSH
+      - name: Create Backup Archive via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -66,9 +70,9 @@ jobs:
           password: ${{ secrets.SSH_PASS }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            FILENAME=$(TZ=Asia/Tokyo date '+"worlds_backup_%Y%m%d_H%H_M%M_JST.zip"')
+            FILENAME=$(TZ=Asia/Tokyo date '+"worlds_backup_%Y%m%d_H%H_M%M_JST.tar.gz"')
             cd /home/container/worlds
-            zip -r "$FILENAME" world
+            tar -czf "$FILENAME" world
             echo "Backup created: /home/container/worlds/$FILENAME"
 
       - name: Start BDS Server via Pterodactyl API
