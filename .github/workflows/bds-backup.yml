@@ -2,10 +2,10 @@ name: BDS World Auto Backup
 
 on:
   schedule:
-    # JST 04:17 と JST 16:23（UTC 19:17 と UTC 07:23）の1日2回実行
-    # 混雑する 00分/05分/30分 を完全に避けた設定
+    # JST 04:17 と JST 13:17（UTC 19:17 と UTC 04:17）の1日2回実行
+    # 混雑する 00分/05分/30分 を避けた時間設定
     - cron: '17 19 * * *'
-    - cron: '23 7 * * *'
+    - cron: '17 4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -13,15 +13,53 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      - name: Announce and Countdown via Pterodactyl Console API
+        run: |
+          # API送信用の共通関数
+          send_cmd() {
+            curl -s -f -X POST "${{ secrets.PANEL_URL }}/api/client/servers/${{ secrets.SERVER_ID }}/command" \
+              -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: Application/vnd.pterodactyl.v1+json" \
+              -d "{\"command\": \"$1\"}"
+          }
+
+          # 1分前告知
+          send_cmd "say [Backup] World backup will start in 1 minute. Server will restart soon."
+          sleep 30
+
+          # 30秒前告知
+          send_cmd "say [Backup] World backup in 30 seconds."
+          sleep 20
+
+          # 10秒前告知
+          send_cmd "say [Backup] World backup in 10 seconds!"
+          sleep 5
+
+          # 5秒〜1秒 カウントダウン
+          send_cmd "say [Backup] Server stopping in 5..."
+          sleep 1
+          send_cmd "say [Backup] 4..."
+          sleep 1
+          send_cmd "say [Backup] 3..."
+          sleep 1
+          send_cmd "say [Backup] 2..."
+          sleep 1
+          send_cmd "say [Backup] 1..."
+          sleep 1
+
+          send_cmd "say [Backup] Stopping server now for world backup..."
+          sleep 2
+
       - name: Stop BDS Server via Pterodactyl API
         run: |
-          curl -X POST "${{ secrets.PANEL_URL }}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
+          curl -s -f -X POST "${{ secrets.PANEL_URL }}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
             -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
             -H "Content-Type: application/json" \
             -H "Accept: Application/vnd.pterodactyl.v1+json" \
             -d '{"signal": "stop"}'
           
-          # サーバーが完全に停止するまで30秒待機
+          # サーバーが完全に停止してファイルロックが解除されるまで30秒待機
           sleep 30
 
       - name: Create Backup Zip via SSH
@@ -42,9 +80,9 @@ jobs:
             echo "Backup created: /home/container/worlds/$FILENAME"
 
       - name: Start BDS Server via Pterodactyl API
-        if: always() # バックアップ成否に関わらずサーバーは再起動を試みる
+        if: always() # バックアップ成否に関わらずサーバーの再起動を試みる
         run: |
-          curl -X POST "${{ secrets.PANEL_URL }}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
+          curl -s -f -X POST "${{ secrets.PANEL_URL }}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
             -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
             -H "Content-Type: application/json" \
             -H "Accept: Application/vnd.pterodactyl.v1+json" \
@@ -53,13 +91,13 @@ jobs:
       - name: Notify Discord on Success
         if: success()
         run: |
-          curl -H "Content-Type: application/json" \
+          curl -s -f -H "Content-Type: application/json" \
             -X POST \
             -d '{
                   "flags": 4096,
                   "embeds": [{
                     "title": "✅ ワールドバックアップ成功",
-                    "description": "BDSのワールドバックアップが正常に完了し、サーバーを再起動しました。",
+                    "description": "カウントダウン後にBDSのワールドバックアップが正常完了し、サーバーを再起動しました。",
                     "color": 3066993,
                     "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
                   }]
@@ -69,7 +107,7 @@ jobs:
       - name: Notify Discord on Failure
         if: failure()
         run: |
-          curl -H "Content-Type: application/json" \
+          curl -s -f -H "Content-Type: application/json" \
             -X POST \
             -d '{
                   "flags": 4096,
