@@ -23,17 +23,14 @@ jobs:
               -d "{\"command\": \"$1\"}"
           }
 
-          # 日本語メッセージ（BDSで安全な文字列）
-          send_cmd "say Backup: 1 minute until world backup. Server will restart soon."
+          # 日本語メッセージのみに統一
           send_cmd "say Backup: 1分後にワールドバックアップを開始します。間もなく再起動します。"
           sleep 30
 
-          send_cmd "say Backup: 30 seconds until backup."
-          send_cmd "say Backup: 30秒前"
+          send_cmd "say Backup: 30秒後にバックアップを行います。"
           sleep 20
 
-          send_cmd "say Backup: 10 seconds!"
-          send_cmd "say Backup: 10秒前"
+          send_cmd "say Backup: 10秒前！"
           sleep 5
 
           send_cmd "say Backup: 5..."
@@ -47,8 +44,7 @@ jobs:
           send_cmd "say Backup: 1..."
           sleep 1
 
-          send_cmd "say Backup: Stopping server now..."
-          send_cmd "say Backup: サーバーを停止しています..."
+          send_cmd "say Backup: サーバーを一時停止してバックアップを作成します..."
           sleep 2
 
       - name: Stop BDS Server via Pterodactyl API
@@ -70,11 +66,14 @@ jobs:
           password: ${{ secrets.SSH_PASS }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            FILENAME=$(TZ=Asia/Tokyo date '+"worlds_backup_%Y%m%d_H%H_M%M_JST.tar.gz"')
+            set -e
+            FILENAME=$(TZ=Asia/Tokyo date '+worlds_backup_%Y%m%d_%H%M_JST.tar.gz')
             cd /home/container/worlds
             tar -czf "$FILENAME" world
             echo "Backup created: /home/container/worlds/$FILENAME"
 
+      # バックアップが失敗してもサーバー自体は絶対に再起動させたいので always() は残すけど、
+      # 順序としてはバックアップがコケた瞬間ここに飛んで起動処理をする流れになるよ！
       - name: Start BDS Server via Pterodactyl API
         if: always()
         run: |
