@@ -1,9 +1,15 @@
+```yaml
 name: BDS World Auto Backup
 
 on:
   schedule:
+    # 日本時間 04:17
     - cron: '17 19 * * *'
+
+    # 日本時間 13:17
     - cron: '17 4 * * *'
+
+  # GitHub Actionsから手動実行可能
   workflow_dispatch:
 
 jobs:
@@ -11,6 +17,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+
       # ============================================================
       # 1. バックアップ前の告知・カウントダウン
       # ============================================================
@@ -54,12 +61,15 @@ jobs:
           send_cmd "say Backup: サーバーを一時停止してバックアップを作成します..."
           sleep 2
 
+
       # ============================================================
       # 2. BDS停止
       # ============================================================
       - name: Stop BDS Server via Pterodactyl API
         run: |
           PANEL_URL=$(echo "${{ secrets.PANEL_URL }}" | sed 's/*$//')
+
+          echo "Stopping BDS server..."
 
           curl -sS -f -X POST \
             "${PANEL_URL}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
@@ -71,10 +81,20 @@ jobs:
           echo "Waiting for BDS to stop..."
           sleep 30
 
+
       # ============================================================
-      # 3. ワールドバックアップ作成
+      # 3. ワールドをtar.gzとしてバックアップ
+      #
+      # 対象:
+      #   /home/container/worlds/world
+      #
+      # 保存先:
+      #   /home/container/worlds/
+      #
+      # ファイル名:
+      #   worlds_backup_YYYYMMDD_HH_MM_JST.tar.gz
       # ============================================================
-      - name: Create Backup Archive via SSH
+      - name: Create World Backup via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -92,6 +112,10 @@ jobs:
             echo ""
             echo "=== Current user ==="
             whoami
+
+            echo ""
+            echo "=== Hostname ==="
+            hostname
 
             echo ""
             echo "=== Current directory ==="
@@ -115,29 +139,43 @@ jobs:
 
             echo ""
             echo "=== Creating filename ==="
-            FILENAME=$(TZ=Asia/Tokyo date '+worlds_backup_%Y%m%d_%H%M_JST.tar.gz')
+
+            FILENAME=$(TZ=Asia/Tokyo date '+worlds_backup_%Y%m%d_H%H_M%M_JST.tar.gz')
+
             echo "Filename: $FILENAME"
 
             echo ""
             echo "=== Changing directory ==="
+
             cd /home/container/worlds
 
             echo ""
-            echo "=== Creating tar.gz ==="
+            echo "=== Creating archive ==="
+
             tar -czf "$FILENAME" world
 
             echo ""
             echo "=== Backup created ==="
+
             ls -lh "$FILENAME"
+
+            echo ""
+            echo "=== Verifying archive ==="
+
+            tar -tzf "$FILENAME" > /dev/null
+
+            echo "Archive verification successful."
 
             echo ""
             echo "========================================"
             echo "BDS WORLD BACKUP SUCCESS"
             echo "========================================"
 
+
       # ============================================================
       # 4. BDS再起動
-      #    バックアップが失敗しても必ず実行
+      #
+      # バックアップが成功しても失敗しても必ず実行する
       # ============================================================
       - name: Start BDS Server via Pterodactyl API
         if: always()
@@ -154,6 +192,7 @@ jobs:
             -d '{"signal": "start"}'
 
           echo "BDS start command sent."
+
 
       # ============================================================
       # 5. Discord 成功通知
@@ -175,6 +214,7 @@ jobs:
             }' \
             "${{ secrets.DISCORD_WEBHOOK }}"
 
+
       # ============================================================
       # 6. Discord 失敗通知
       # ============================================================
@@ -185,6 +225,7 @@ jobs:
             -H "Content-Type: application/json" \
             -X POST \
             -d '{
+              "flags": 4096,
               "embeds": [{
                 "title": "🚨 ワールドバックアップ失敗",
                 "description": "バックアップ処理中にエラーが発生しました。ログとサーバーの状態を確認してください。",
@@ -193,3 +234,4 @@ jobs:
               }]
             }' \
             "${{ secrets.DISCORD_WEBHOOK }}"
+```
