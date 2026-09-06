@@ -1,0 +1,23 @@
+name: Debug Time
+
+on:
+  schedule:
+    # 日本時間 04:17
+    - cron: '17 19 * * *'
+    # 日本時間 13:17
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  debug-time:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Debug time
+        run: |
+          echo "=== Current Time ==="
+          echo "UTC:"
+          date -u
+          echo
+          echo "JST:"
+          TZ=Asia/Tokyo date
