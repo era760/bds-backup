@@ -1,14 +1,12 @@
-name: BDS Backup
+```yaml
+name: BDS World Auto Backup
 
 on:
   schedule:
     # 日本時間 04:17
     - cron: '17 19 * * *'
-
     # 日本時間 13:17
     - cron: '17 4 * * *'
-
-  # GitHub Actionsから手動実行可能
   workflow_dispatch:
 
 jobs:
@@ -18,218 +16,303 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. バックアップ前の告知・カウントダウン
+      # 1. バックアップ開始をゲーム内に通知
       # ============================================================
       - name: Announce and Countdown via Pterodactyl Console API
+        env:
+          PANEL_URL: ${{ secrets.PANEL_URL }}
+          SERVER_ID: ${{ secrets.SERVER_ID }}
+          API_KEY: ${{ secrets.API_KEY }}
         run: |
-          PANEL_URL=$(echo "${{ secrets.PANEL_URL }}" | sed 's/*$//')
+          set -e
+
+          PANEL_URL=$(echo "$PANEL_URL" | sed 's/\*$//')
 
           send_cmd() {
-            curl -sS -f -X POST \
-              "${PANEL_URL}/api/client/servers/${{ secrets.SERVER_ID }}/command" \
-              -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
+            curl -fsS \
+              -X POST \
+              "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
+              -H "Authorization: Bearer $API_KEY" \
               -H "Content-Type: application/json" \
               -H "Accept: Application/vnd.pterodactyl.v1+json" \
-              -d "{\"command\": \"$1\"}"
+              --data "{\"command\":\"$1\"}"
           }
 
-          send_cmd "say Backup: 1分後にワールドバックアップを開始します。間もなく再起動します。"
-          sleep 30
+          send_cmd "say §e[Backup] §fワールドバックアップを開始します。"
 
-          send_cmd "say Backup: 30秒後にバックアップを行います。"
-          sleep 20
-
-          send_cmd "say Backup: 10秒前！"
+          sleep 2
+          send_cmd "say §e[Backup] §fサーバー停止まで §c10秒§f..."
           sleep 5
 
-          send_cmd "say Backup: 5..."
+          send_cmd "say §e[Backup] §fサーバー停止まで §c5秒§f..."
+          sleep 1
+          send_cmd "say §e[Backup] §f4..."
+          sleep 1
+          send_cmd "say §e[Backup] §f3..."
+          sleep 1
+          send_cmd "say §e[Backup] §f2..."
+          sleep 1
+          send_cmd "say §e[Backup] §f1..."
           sleep 1
 
-          send_cmd "say Backup: 4..."
-          sleep 1
-
-          send_cmd "say Backup: 3..."
-          sleep 1
-
-          send_cmd "say Backup: 2..."
-          sleep 1
-
-          send_cmd "say Backup: 1..."
-          sleep 1
-
-          send_cmd "say Backup: サーバーを一時停止してバックアップを作成します..."
-          sleep 2
-
+          send_cmd "say §e[Backup] §fサーバーを停止してバックアップします。"
 
       # ============================================================
       # 2. BDS停止
       # ============================================================
       - name: Stop BDS Server via Pterodactyl API
+        env:
+          PANEL_URL: ${{ secrets.PANEL_URL }}
+          SERVER_ID: ${{ secrets.SERVER_ID }}
+          API_KEY: ${{ secrets.API_KEY }}
         run: |
-          PANEL_URL=$(echo "${{ secrets.PANEL_URL }}" | sed 's/*$//')
+          set -e
 
-          echo "Stopping BDS server..."
+          PANEL_URL=$(echo "$PANEL_URL" | sed 's/\*$//')
 
-          curl -sS -f -X POST \
-            "${PANEL_URL}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
-            -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
+          curl -fsS \
+            -X POST \
+            "$PANEL_URL/api/client/servers/$SERVER_ID/power" \
+            -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
             -H "Accept: Application/vnd.pterodactyl.v1+json" \
-            -d '{"signal": "stop"}'
+            --data '{"signal":"stop"}'
 
-          echo "Waiting for BDS to stop..."
+          echo "BDS stop signal sent."
+
+          # サーバーが完全に停止するまで待機
           sleep 30
 
-
       # ============================================================
-      # 3. ワールドをtar.gzとしてバックアップ
-      #
-      # 対象:
-      #   /home/container/worlds/world
-      #
-      # 保存先:
-      #   /home/container/worlds/
-      #
-      # ファイル名:
-      #   worlds_backup_YYYYMMDD_HH_MM_JST.tar.gz
+      # 3. SFTPでworldを取得 → GitHub Actions側でtar.gz作成
+      #    → SFTPでworldsフォルダへアップロード
       # ============================================================
-      - name: Create World Backup via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASS }}
-          port: ${{ secrets.SSH_PORT }}
+      - name: Backup World via SFTP
+        env:
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASS: ${{ secrets.SFTP_PASS }}
+        run: |
+          set -e
 
-          script: |
-            set -ex
+          echo "========================================"
+          echo "SFTP World Backup"
+          echo "========================================"
 
-            echo "========================================"
-            echo "BDS WORLD BACKUP START"
-            echo "========================================"
+          python3 -m pip install --quiet paramiko
 
-            echo ""
-            echo "=== Current user ==="
-            whoami
+          python3 <<'PY'
+          import os
+          import posixpath
+          import shutil
+          import tarfile
+          from pathlib import Path
+          import paramiko
 
-            echo ""
-            echo "=== Hostname ==="
-            hostname
+          HOST = os.environ["SFTP_HOST"]
+          PORT = int(os.environ["SFTP_PORT"])
+          USER = os.environ["SFTP_USER"]
+          PASSWORD = os.environ["SFTP_PASS"]
 
-            echo ""
-            echo "=== Current directory ==="
-            pwd
+          # Pterodactyl SFTP上のパス
+          REMOTE_WORLD = "/worlds/world"
+          REMOTE_BACKUP_DIR = "/worlds"
 
-            echo ""
-            echo "=== Checking /home/container ==="
-            ls -la /home/container
+          # GitHub Actions側の作業場所
+          LOCAL_ROOT = Path("/tmp/bds_backup")
+          LOCAL_WORLD = LOCAL_ROOT / "world"
 
-            echo ""
-            echo "=== Checking /home/container/worlds ==="
-            ls -la /home/container/worlds
+          LOCAL_ROOT.mkdir(parents=True, exist_ok=True)
 
-            echo ""
-            echo "=== Checking world directory ==="
-            ls -la /home/container/worlds/world
+          # --------------------------------------------------------
+          # SFTP接続
+          # --------------------------------------------------------
+          print(f"Connecting to {HOST}:{PORT} ...")
 
-            echo ""
-            echo "=== Disk usage ==="
-            df -h
+          transport = paramiko.Transport((HOST, PORT))
+          transport.connect(username=USER, password=PASSWORD)
 
-            echo ""
-            echo "=== Creating filename ==="
+          sftp = paramiko.SFTPClient.from_transport(transport)
 
-            FILENAME=$(TZ=Asia/Tokyo date '+worlds_backup_%Y%m%d_H%H_M%M_JST.tar.gz')
+          print("SFTP connection established.")
 
-            echo "Filename: $FILENAME"
+          # --------------------------------------------------------
+          # リモートディレクトリを再帰的にダウンロード
+          # --------------------------------------------------------
+          def download_recursive(remote_path, local_path):
+              local_path = Path(local_path)
+              local_path.mkdir(parents=True, exist_ok=True)
 
-            echo ""
-            echo "=== Changing directory ==="
+              for entry in sftp.listdir_attr(remote_path):
+                  remote_item = posixpath.join(remote_path, entry.filename)
+                  local_item = local_path / entry.filename
 
-            cd /home/container/worlds
+                  # ディレクトリ判定
+                  if entry.st_mode & 0o40000:
+                      download_recursive(remote_item, local_item)
+                  else:
+                      print(f"DOWNLOAD: {remote_item}")
+                      sftp.get(remote_item, str(local_item))
 
-            echo ""
-            echo "=== Creating archive ==="
+          print("Downloading world...")
+          download_recursive(REMOTE_WORLD, LOCAL_WORLD)
 
-            tar -czf "$FILENAME" world
+          # --------------------------------------------------------
+          # バックアップファイル名
+          # 日本時間
+          # --------------------------------------------------------
+          import datetime
+          from zoneinfo import ZoneInfo
 
-            echo ""
-            echo "=== Backup created ==="
+          now = datetime.datetime.now(ZoneInfo("Asia/Tokyo"))
 
-            ls -lh "$FILENAME"
+          filename = (
+              f"worlds_backup_"
+              f"{now.strftime('%Y%m%d')}_"
+              f"H{now.strftime('%H')}_"
+              f"M{now.strftime('%M')}_"
+              f"JST.tar.gz"
+          )
 
-            echo ""
-            echo "=== Verifying archive ==="
+          archive_path = LOCAL_ROOT / filename
 
-            tar -tzf "$FILENAME" > /dev/null
+          # --------------------------------------------------------
+          # tar.gz作成
+          # --------------------------------------------------------
+          print(f"Creating archive: {archive_path}")
 
-            echo "Archive verification successful."
+          with tarfile.open(archive_path, "w:gz") as tar:
+              tar.add(
+                  LOCAL_WORLD,
+                  arcname="world"
+              )
 
-            echo ""
-            echo "========================================"
-            echo "BDS WORLD BACKUP SUCCESS"
-            echo "========================================"
+          print(f"Archive created: {archive_path}")
+          print(f"Archive size: {archive_path.stat().st_size:,} bytes")
 
+          # --------------------------------------------------------
+          # tar.gzをSFTPで /worlds/ にアップロード
+          # --------------------------------------------------------
+          remote_archive = posixpath.join(
+              REMOTE_BACKUP_DIR,
+              filename
+          )
+
+          print(f"Uploading: {remote_archive}")
+
+          sftp.put(
+              str(archive_path),
+              remote_archive
+          )
+
+          print("Upload completed.")
+
+          # --------------------------------------------------------
+          # アップロード確認
+          # --------------------------------------------------------
+          remote_stat = sftp.stat(remote_archive)
+
+          local_size = archive_path.stat().st_size
+          remote_size = remote_stat.st_size
+
+          print(f"Local size : {local_size:,} bytes")
+          print(f"Remote size: {remote_size:,} bytes")
+
+          if local_size != remote_size:
+              raise RuntimeError(
+                  "Upload verification failed: file sizes do not match."
+              )
+
+          print("========================================")
+          print("BACKUP SUCCESS")
+          print(f"Remote file: {remote_archive}")
+          print("========================================")
+
+          # --------------------------------------------------------
+          # 切断
+          # --------------------------------------------------------
+          sftp.close()
+          transport.close()
+
+          # ローカル一時ファイル削除
+          shutil.rmtree(LOCAL_ROOT, ignore_errors=True)
+
+          print("Temporary files removed.")
+          PY
 
       # ============================================================
       # 4. BDS再起動
-      #
-      # バックアップが成功しても失敗しても必ず実行する
+      #    バックアップが失敗しても必ず実行
       # ============================================================
       - name: Start BDS Server via Pterodactyl API
         if: always()
+        env:
+          PANEL_URL: ${{ secrets.PANEL_URL }}
+          SERVER_ID: ${{ secrets.SERVER_ID }}
+          API_KEY: ${{ secrets.API_KEY }}
         run: |
-          PANEL_URL=$(echo "${{ secrets.PANEL_URL }}" | sed 's/*$//')
+          set -e
+
+          PANEL_URL=$(echo "$PANEL_URL" | sed 's/\*$//')
 
           echo "Starting BDS server..."
 
-          curl -sS -f -X POST \
-            "${PANEL_URL}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
-            -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
+          curl -fsS \
+            -X POST \
+            "$PANEL_URL/api/client/servers/$SERVER_ID/power" \
+            -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
             -H "Accept: Application/vnd.pterodactyl.v1+json" \
-            -d '{"signal": "start"}'
+            --data '{"signal":"start"}'
 
-          echo "BDS start command sent."
-
+          echo "BDS start signal sent."
 
       # ============================================================
-      # 5. Discord 成功通知
+      # 5. 成功通知
       # ============================================================
-      - name: Notify Discord on Success
+      - name: Send Success Notification to Discord
         if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          curl -sS -f \
-            -H "Content-Type: application/json" \
+          curl -fsS \
             -X POST \
-            -d '{
+            "$DISCORD_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            --data '{
               "flags": 4096,
-              "embeds": [{
-                "title": "✅ ワールドバックアップ成功",
-                "description": "カウントダウン後にBDSのワールドバックアップが正常完了し、サーバーを再起動しました。",
-                "color": 3066993,
-                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
-              }]
-            }' \
-            "${{ secrets.DISCORD_WEBHOOK }}"
-
+              "embeds": [
+                {
+                  "title": "✅ ワールドバックアップ成功",
+                  "description": "BDSワールドのバックアップが正常に完了しました。\nサーバーも再起動しました。",
+                  "color": 3066993,
+                  "timestamp": "'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'"
+                }
+              ]
+            }'
 
       # ============================================================
-      # 6. Discord 失敗通知
+      # 6. 失敗通知
       # ============================================================
-      - name: Notify Discord on Failure
+      - name: Send Failure Notification to Discord
         if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          curl -sS -f \
-            -H "Content-Type: application/json" \
+          curl -fsS \
             -X POST \
-            -d '{
+            "$DISCORD_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            --data '{
               "flags": 4096,
-              "embeds": [{
-                "title": "🚨 ワールドバックアップ失敗",
-                "description": "バックアップ処理中にエラーが発生しました。ログとサーバーの状態を確認してください。",
-                "color": 15158332,
-                "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
-              }]
-            }' \
-            "${{ secrets.DISCORD_WEBHOOK }}"
+              "embeds": [
+                {
+                  "title": "❌ ワールドバックアップ失敗",
+                  "description": "BDSワールドのバックアップに失敗しました。\nGitHub Actionsのログを確認してください。\nサーバーの再起動処理は実行しています。",
+                  "color": 15158332,
+                  "timestamp": "'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'"
+                }
+              ]
+            }'
+```
