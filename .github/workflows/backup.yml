@@ -1,4 +1,3 @@
-```yaml
 name: BDS World Auto Backup
 
 on:
@@ -315,4 +314,3 @@ jobs:
                 }
               ]
             }'
-```
