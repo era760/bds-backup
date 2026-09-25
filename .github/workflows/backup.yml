@@ -80,7 +80,7 @@ jobs:
           echo "BDS stop signal sent."
 
           # サーバーが完全に停止するまで待機
-          sleep 30
+          sleep 10
 
       # ============================================================
       # 3. SFTPでworldを取得 → GitHub Actions側でtar.gz作成
