@@ -3,9 +3,11 @@ name: BDS World Auto Backup
 on:
   schedule:
     # 日本時間 04:17
-    - cron: '17 19 * * *'
+    - cron: '17 04 * * *'
+      timezone: 'Asia/Tokyo'
     # 日本時間 13:17
-    - cron: '17 4 * * *'
+    - cron: '17 13 * * *'
+      timezone: 'Asia/Tokyo'
   workflow_dispatch:
 
 jobs:
