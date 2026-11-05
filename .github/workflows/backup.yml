@@ -2,17 +2,13 @@ name: BDS World Auto Backup
 
 on:
   schedule:
-    # 日本時間 04:17
-    #- cron: '17 04 * * *'
-    #  timezone: 'Asia/Tokyo'
-    # 日本時間 13:17
-   # - cron: '17 13 * * *'
-   #   timezone: 'Asia/Tokyo'
+    - cron: '45 5 * * *'
+      timezone: 'Asia/Tokyo'
   workflow_dispatch:
 
 jobs:
   backup:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
 
